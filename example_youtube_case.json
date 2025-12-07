@@ -1,0 +1,27 @@
+{
+    "id": "case_youtube_example",
+    "weekId": "week_1",
+    "title": "Example YouTube Case",
+    "description": "This is a test case using a YouTube video source.",
+    "speciality": "Endodontics",
+    "level": "medium",
+    "mediaUrls": [],
+    "createdBy": "admin_user",
+    "createdAt": "2024-12-06T12:00:00.000Z",
+    "videoType": "youtube",
+    "videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "chapters": [],
+    "prepMaterials": [],
+    "interactiveSteps": [
+        {
+            "id": "step_1",
+            "pauseAtSeconds": 10,
+            "questionText": "What just happened?",
+            "correctAnswerText": "Nothing",
+            "requiredKeywords": [
+                "nothing"
+            ],
+            "bonusKeywords": []
+        }
+    ]
+}

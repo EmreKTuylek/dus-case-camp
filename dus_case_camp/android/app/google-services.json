@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "375896160020",
+    "project_id": "duscasecamp2025",
+    "storage_bucket": "duscasecamp2025.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:375896160020:android:8a44452b71e01591ff3401",
+        "android_client_info": {
+          "package_name": "com.example.dus_case_camp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSUc0nVbBAR_tQf-5rmT4w2hT4yy7xJsI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

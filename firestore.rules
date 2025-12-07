@@ -1,0 +1,118 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isTeacherOrAdmin() {
+      return isAuthenticated() && (getUserData().role == 'teacher' || getUserData().role == 'admin');
+    }
+
+    // Users
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId);
+      allow update: if true; // Debugging: Allow all updates
+      allow write: if true; // Debugging: Allow all writes
+
+      // Favorites subcollection
+      match /favorites/{caseId} {
+         allow read, write: if isOwner(userId);
+      }
+      
+      // WatchLater subcollection
+      match /watchLater/{caseId} {
+         allow read, write: if isOwner(userId);
+      }
+
+      // Badges subcollection
+      match /userBadges/{badgeId} {
+         allow read: if true;
+         allow write: if isOwner(userId) || isTeacherOrAdmin();
+      }
+
+      // Certificates subcollection
+      match /userCertificates/{certId} {
+         allow read: if true;
+         allow write: if isOwner(userId) || isTeacherOrAdmin();
+      }
+    }
+
+    // Gamification Events
+    match /userPointsEvents/{eventId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Weeks
+    match /weeks/{weekId} {
+      allow read: if true;
+      allow write: if isTeacherOrAdmin();
+    }
+
+    // Cases
+    match /cases/{caseId} {
+      allow read: if true;
+      allow write: if isTeacherOrAdmin();
+
+      // Comments subcollection
+      match /comments/{commentId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow update, delete: if isOwner(resource.data.userId) || isTeacherOrAdmin();
+      }
+    }
+
+    // Submissions
+    match /submissions/{submissionId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.studentId == request.auth.uid || isTeacherOrAdmin());
+      allow create: if isAuthenticated() && request.resource.data.studentId == request.auth.uid;
+      allow update: if true; // Debugging: Allow all updates
+
+      // Students can delete their own pending submissions? Maybe not for now.
+    }
+
+
+    // Banners
+    match /banners/{bannerId} {
+      allow read: if true;
+      allow write: if isTeacherOrAdmin();
+    }
+
+    // Leaderboards
+    match /weekly_leaderboards/{entry} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only updated by Cloud Functions
+    }
+
+    match /global_leaderboards/{entry} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only updated by Cloud Functions
+    }
+
+    // Analytics
+    match /userAnalytics/{studentId} {
+      allow read: if isOwner(studentId) || isTeacherOrAdmin();
+      allow write: if false; // Only updated by Cloud Functions
+    }
+
+    // Chat Messages
+    match /caseLiveChatMessages/{messageId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.senderId == request.auth.uid;
+      allow update, delete: if isTeacherOrAdmin();
+    }
+  }
+}

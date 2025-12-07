@@ -1,0 +1,30 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Submissions: Authenticated users can read/write their own content? 
+    // Simplified: Auth users can read/write submissions.
+    match /submissions/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // Video Submissions (Transcoded): Auth users read only.
+    match /videoSubmissions/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if false; // Only Cloud Functions write here
+    }
+
+    // Cases: Public read, Admin write
+    match /cases/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null; // Ideally check role
+    }
+
+    // Default lock
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
