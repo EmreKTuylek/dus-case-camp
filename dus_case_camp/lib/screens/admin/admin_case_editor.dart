@@ -29,6 +29,7 @@ class _AdminCaseEditorState extends ConsumerState<AdminCaseEditor> {
   // late TextEditingController _specialityController; // Removed
   late TextEditingController _videoUrlController;
   late TextEditingController _liveUrlController;
+  late TextEditingController _thumbUrlController; // New
 
   CaseLevel _level = CaseLevel.medium;
   DentalSpecialty _selectedSpecialty =
@@ -41,6 +42,7 @@ class _AdminCaseEditorState extends ConsumerState<AdminCaseEditor> {
   List<PrepMaterial> _prepMaterials = [];
   List<InteractiveStep> _interactiveSteps = [];
   List<Chapter> _chapters = [];
+  List<CaseSubtitle> _subtitles = [];
 
   bool _isSaving = false;
   bool _isUploading = false;
@@ -53,9 +55,9 @@ class _AdminCaseEditorState extends ConsumerState<AdminCaseEditor> {
     final c = widget.caseModel;
     _titleController = TextEditingController(text: c?.title ?? '');
     _descController = TextEditingController(text: c?.description ?? '');
-    // _specialityController = TextEditingController(text: c?.speciality ?? '');
     _videoUrlController = TextEditingController(text: c?.videoUrl ?? '');
     _liveUrlController = TextEditingController(text: c?.liveStreamUrl ?? '');
+    _thumbUrlController = TextEditingController(text: c?.thumbnailUrl ?? '');
 
     _level = c?.level ?? CaseLevel.medium;
     _videoType = c?.videoType ?? CaseVideoType.vod;
@@ -70,16 +72,43 @@ class _AdminCaseEditorState extends ConsumerState<AdminCaseEditor> {
     _prepMaterials = List.from(c?.prepMaterials ?? []);
     _interactiveSteps = List.from(c?.interactiveSteps ?? []);
     _chapters = List.from(c?.chapters ?? []);
+    _subtitles = List.from(c?.subtitles ?? []);
   }
 
   @override
   void dispose() {
     _titleController.dispose();
     _descController.dispose();
-    // _specialityController.dispose();
     _videoUrlController.dispose();
     _liveUrlController.dispose();
+    _thumbUrlController.dispose();
     super.dispose();
+  }
+
+  // --- Helpers ---
+  Future<String?> _uploadFile(PlatformFile file, String folder) async {
+    setState(() => _isUploading = true);
+    try {
+      final ref = FirebaseStorage.instance.ref().child(
+          '$folder/${DateTime.now().millisecondsSinceEpoch}_${file.name}');
+
+      UploadTask task;
+      if (kIsWeb) {
+        task = ref.putData(file.bytes!);
+      } else {
+        task = ref.putFile(File(file.path!));
+      }
+
+      await task;
+      return await ref.getDownloadURL();
+    } catch (e) {
+      debugPrint('Upload Error: $e');
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Upload Error: $e')));
+      return null;
+    } finally {
+      setState(() => _isUploading = false);
+    }
   }
 
   Future<void> _pickVideo() async {
@@ -92,94 +121,33 @@ class _AdminCaseEditorState extends ConsumerState<AdminCaseEditor> {
       return;
     }
 
-    setState(() {
-      _isUploading = true;
-      _uploadProgress = 0.0;
-      _uploadStatusText = 'Waiting for file selection...';
-    });
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.video,
+      withData: true,
+    );
 
-    try {
-      if (kDebugMode) print('Starting video pick...');
-
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.video,
-        withData: true, // Force load bytes for Web
-      );
-
-      if (result != null) {
-        setState(() => _uploadStatusText = 'Processing file...');
-        final file = result.files.first;
-        if (kDebugMode)
-          print(
-              'File picked: ${file.name}, size: ${file.size}, bytes: ${file.bytes?.length}');
-
-        if (kIsWeb && file.size > 50 * 1024 * 1024) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text(
-                  'Warning: Large video files (>50MB) may crash on Web due to memory limits. Use smaller clips or native app.')));
-        }
-
-        final ref = FirebaseStorage.instance.ref().child(
-            'cases/${DateTime.now().millisecondsSinceEpoch}_${file.name}');
-
-        UploadTask task;
-        if (kIsWeb) {
-          if (file.bytes == null) {
-            throw 'File bytes are null. Please try again or use a smaller file.';
-          }
-          final metadata = SettableMetadata(
-              contentType: 'video/mp4'); // Help browser handling
-          task = ref.putData(file.bytes!, metadata);
-        } else {
-          task = ref.putFile(File(file.path!));
-        }
-
-        task.snapshotEvents.listen((event) {
-          if (mounted) {
-            setState(() {
-              _uploadProgress = event.bytesTransferred /
-                  (event.totalBytes > 0 ? event.totalBytes : 1);
-              _uploadStatusText =
-                  'Uploading: ${(_uploadProgress * 100).toStringAsFixed(0)}%';
-            });
-          }
-        });
-
-        await task;
-
-        setState(() => _uploadStatusText = 'Getting download URL...');
-        final url = await ref.getDownloadURL();
-        if (kDebugMode) print('Upload success: $url');
-
+    if (result != null) {
+      final url = await _uploadFile(result.files.first, 'cases');
+      if (url != null) {
         setState(() {
           _videoUrlController.text = url;
-          _uploadStatusText = 'Upload Complete!';
         });
+      }
+    }
+  }
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Video uploaded successfully!')));
-        }
-      } else {
-        if (kDebugMode) print('User canceled picker');
+  Future<void> _pickThumbnail() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true,
+    );
+
+    if (result != null) {
+      final url = await _uploadFile(result.files.first, 'thumbnails');
+      if (url != null) {
         setState(() {
-          _isUploading = false;
-          _uploadStatusText = '';
+          _thumbUrlController.text = url;
         });
-      }
-    } catch (e, stack) {
-      if (kDebugMode) print('Upload Error: $e\n$stack');
-      setState(() => _uploadStatusText = 'Error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Upload failed: $e. See console for details.')));
-      }
-    } finally {
-      if (_uploadStatusText.contains('Error') || _uploadStatusText.isEmpty) {
-        if (mounted) setState(() => _isUploading = false);
-      } else {
-        await Future.delayed(const Duration(seconds: 2));
-        if (mounted) setState(() => _isUploading = false);
       }
     }
   }
@@ -208,6 +176,9 @@ class _AdminCaseEditorState extends ConsumerState<AdminCaseEditor> {
         videoType: _videoType,
         videoUrl:
             _videoUrlController.text.isEmpty ? null : _videoUrlController.text,
+        thumbnailUrl: _thumbUrlController.text.isEmpty
+            ? null
+            : _thumbUrlController.text, // Save Thumb
         liveStreamUrl:
             _liveUrlController.text.isEmpty ? null : _liveUrlController.text,
         liveSessionStart: _liveStart,
@@ -215,9 +186,9 @@ class _AdminCaseEditorState extends ConsumerState<AdminCaseEditor> {
         chapters: _chapters,
         prepMaterials: _prepMaterials,
         interactiveSteps: _interactiveSteps,
+        subtitles: _subtitles,
       );
 
-      // ... (Rest of save unchanged) ...
       await FirebaseFirestore.instance
           .collection('cases')
           .doc(id)
@@ -307,6 +278,25 @@ class _AdminCaseEditorState extends ConsumerState<AdminCaseEditor> {
                   .toList(),
               onChanged: (v) => setState(() => _videoType = v!),
             ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                      controller: _thumbUrlController,
+                      decoration: const InputDecoration(
+                          labelText: 'Thumbnail URL (Optional)')),
+                ),
+                IconButton(
+                    onPressed: _pickThumbnail, icon: const Icon(Icons.image)),
+              ],
+            ),
+            if (_thumbUrlController.text.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Image.network(_thumbUrlController.text,
+                    height: 100, fit: BoxFit.cover),
+              ),
             const SizedBox(height: 16),
             if (_videoType == CaseVideoType.youtube) ...[
               TextFormField(
@@ -448,6 +438,159 @@ class _AdminCaseEditorState extends ConsumerState<AdminCaseEditor> {
     );
   }
 
+  // --- UI Builders ---
+
+  Widget _buildPrepMaterials() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Preparation Materials',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                IconButton(
+                    icon: const Icon(Icons.add),
+                    onPressed: () => _showMediaDialog(isPrep: true)),
+              ],
+            ),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _prepMaterials.length,
+              itemBuilder: (context, index) {
+                final item = _prepMaterials[index];
+                return ListTile(
+                    leading: const Icon(Icons.link),
+                    title: Text(item.title),
+                    subtitle: Text(item.url),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red),
+                      onPressed: () =>
+                          setState(() => _prepMaterials.removeAt(index)),
+                    ));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubtitles() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Subtitles (CC)',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                IconButton(
+                    icon: const Icon(Icons.upload_file),
+                    onPressed: () async {
+                      final result = await FilePicker.platform.pickFiles(
+                        type: FileType.any, // .srt or .vtt
+                        withData: true,
+                      );
+                      if (result != null) {
+                        final url =
+                            await _uploadFile(result.files.first, 'subtitles');
+                        if (url != null) {
+                          setState(() {
+                            _subtitles.add(CaseSubtitle(
+                                language:
+                                    'tr', // Default, should ideally ask user
+                                label: 'Turkish',
+                                url: url));
+                          });
+                        }
+                      }
+                    }),
+              ],
+            ),
+            const Text('Supports .srt or .vtt',
+                style: TextStyle(color: Colors.grey, fontSize: 12)),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _subtitles.length,
+              itemBuilder: (context, index) {
+                final item = _subtitles[index];
+                return ListTile(
+                    leading: const Icon(Icons.closed_caption),
+                    title: Text('${item.label} (${item.language})'),
+                    subtitle: Text(item.url
+                        .split('?')
+                        .first
+                        .split('/')
+                        .last), // Show filename
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red),
+                      onPressed: () =>
+                          setState(() => _subtitles.removeAt(index)),
+                    ));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showMediaDialog({required bool isPrep}) {
+    final titleController = TextEditingController();
+    final urlController = TextEditingController();
+
+    showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: Text(isPrep ? 'Add Material' : 'Add Media'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                      controller: titleController,
+                      decoration: const InputDecoration(labelText: 'Title')),
+                  TextField(
+                      controller: urlController,
+                      decoration:
+                          const InputDecoration(labelText: 'URL (PDF/Web)')),
+                ],
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel')),
+                ElevatedButton(
+                    onPressed: () {
+                      if (titleController.text.isNotEmpty &&
+                          urlController.text.isNotEmpty) {
+                        setState(() {
+                          _prepMaterials.add(PrepMaterial(
+                              id: DateTime.now()
+                                  .millisecondsSinceEpoch
+                                  .toString(),
+                              type: 'link',
+                              title: titleController.text,
+                              url: urlController.text));
+                        });
+                        Navigator.pop(context);
+                      }
+                    },
+                    child: const Text('Add'))
+              ],
+            ));
+  }
+
   void _showStepDialog({InteractiveStep? step, int? index}) {
     final pauseController =
         TextEditingController(text: step?.pauseAtSeconds.toString() ?? '0');
@@ -546,6 +689,10 @@ class _AdminCaseEditorState extends ConsumerState<AdminCaseEditor> {
               _buildBasicInfo(),
               const SizedBox(height: 16),
               _buildVideoConfig(),
+              const SizedBox(height: 16),
+              _buildPrepMaterials(),
+              const SizedBox(height: 16),
+              _buildSubtitles(),
               const SizedBox(height: 16),
               _buildInteractiveSteps(),
               const SizedBox(height: 32),

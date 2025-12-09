@@ -153,14 +153,52 @@ class DusCaseCampApp extends ConsumerWidget {
       title: 'DUS Case Camp',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF00897B), // Teal/Dentistry Green
-          secondary: const Color(0xFF0277BD), // Blue
+          seedColor: const Color(0xFF1A73E8), // Primary Blue
+          secondary: const Color(0xFF00BCD4), // Accent Cyan
+          error: const Color(0xFFD93025), // Error Red
+          surface: Colors.grey[50],
         ),
         useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFFF8F9FA),
         appBarTheme: const AppBarTheme(
           centerTitle: true,
-          backgroundColor: Color(0xFF00897B),
+          backgroundColor: Color(0xFF1A73E8),
           foregroundColor: Colors.white,
+          elevation: 0,
+        ),
+        cardTheme: CardThemeData(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: Colors.grey.shade200)),
+          color: Colors.white,
+          margin: const EdgeInsets.only(bottom: 12),
+        ),
+        textTheme: const TextTheme(
+          headlineMedium: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              letterSpacing: -0.5,
+              color: Colors.black87),
+          titleLarge: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.25,
+              color: Colors.black87),
+          bodyLarge:
+              TextStyle(fontSize: 16, height: 1.5, color: Colors.black87),
+          labelSmall: TextStyle(
+              fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.5),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF1A73E8),
+            foregroundColor: Colors.white,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            textStyle: const TextStyle(fontWeight: FontWeight.w600),
+          ),
         ),
       ),
       routerConfig: _router,

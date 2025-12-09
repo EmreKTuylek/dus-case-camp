@@ -19,8 +19,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../widgets/case_player.dart';
 import '../widgets/chapter_list.dart';
 import '../widgets/live_chat_panel.dart';
+import '../widgets/case_completion_sheet.dart';
 import '../models/interactive_models.dart';
 import '../services/ai_evaluation_service.dart';
+import '../services/gamification_service.dart';
 
 class CaseDetailScreen extends ConsumerStatefulWidget {
   final String caseId;
@@ -59,8 +61,71 @@ class _CaseDetailScreenState extends ConsumerState<CaseDetailScreen> {
     return false;
   }
 
+  // Completion State
+  final Set<String> _completedStepIds = {};
+  bool _isVideoFinished = false;
+
   void _onChapterTap(int seconds) {
     _playerKey.currentState?.seekTo(Duration(seconds: seconds));
+  }
+
+  Future<void> _checkCompletion(CaseModel caseModel) async {
+    // 1. Check if all required steps are done
+    final requiredSteps = caseModel.interactiveSteps;
+    final allStepsDone =
+        requiredSteps.every((s) => _completedStepIds.contains(s.id));
+
+    // 2. Check video completion (simple threshold, handled by player callback or heuristic)
+    // We assume _isVideoFinished is set by player callback
+
+    if (allStepsDone &&
+        (_isVideoFinished || caseModel.videoType != CaseVideoType.vod)) {
+      final user = ref.read(firebaseAuthProvider).currentUser;
+      if (user == null) return;
+
+      // 3. Award Points & Badges
+      final service = GamificationService();
+
+      // Check if already completed to avoid spamming the sheet (optional, or just show sheet always but 0 points)
+      // But GamificationService handles point deduplication. We might want to know if it's "newly" completed
+      // to show confetti, but for now we just show the sheet.
+
+      // Determine total XP for this completion
+      const xpAmount = GamificationService.POINTS_CASE_COMPLETE;
+
+      await service.awardPoints(
+        userId: user.uid,
+        eventType: 'case_complete',
+        points: xpAmount,
+        caseId: widget.caseId,
+      );
+
+      final newBadges = await service.checkAndAwardBadgesForUser(user.uid);
+
+      // 4. Show Sheet
+      if (mounted) {
+        showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (context) => CaseCompletionSheet(
+                  caseTitle: caseModel.title,
+                  earnedXp:
+                      xpAmount, // Roughly correct, though service might skip if duplicate.
+                  // Ideally service returns "awardedPoints" but keeping it simple.
+                  earnedBadges: newBadges,
+                  onNextCase: () {
+                    Navigator.pop(context); // Close sheet
+                    Navigator.pop(
+                        context); // Go back to list (or find next case logic)
+                  },
+                  onGoHome: () {
+                    Navigator.pop(context);
+                    Navigator.pop(context);
+                  },
+                ));
+      }
+    }
   }
 
   Future<void> _submitAnswer() async {
@@ -236,11 +301,63 @@ class _CaseDetailScreenState extends ConsumerState<CaseDetailScreen> {
           .doc(answer.id)
           .set(answer.toJson());
 
+      // Mark as completed locally
+      _completedStepIds.add(step.id);
+
+      // AWARD POINTS & CHECK BADGES
+      if ((answer.aiScore ?? 0) >= 70) {
+        final user = ref.read(firebaseAuthProvider).currentUser;
+        if (user != null) {
+          final service = GamificationService();
+          await service.awardPoints(
+            userId: user.uid,
+            eventType: 'interactive_answer',
+            points: 20,
+            caseId: widget.caseId,
+          );
+
+          // Check for new badges
+          final newBadges = await service.checkAndAwardBadgesForUser(user.uid);
+          if (newBadges.isNotEmpty && mounted) {
+            for (final badge in newBadges) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      const Icon(Icons.emoji_events, color: Colors.white),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('Badge Unlocked!',
+                                style: TextStyle(fontWeight: FontWeight.bold)),
+                            Text(badge.name),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  backgroundColor: Colors.amber,
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+            }
+          }
+        }
+      }
+
       // 4. Resume video
       // Skip past the pause point (1.5s) to avoid immediate re-trigger
       _playerKey.currentState?.seekTo(
           Duration(milliseconds: (step.pauseAtSeconds * 1000 + 1500).toInt()));
       _playerKey.currentState?.play();
+
+      final caseModel = ref.read(caseProvider(widget.caseId)).value;
+      if (caseModel != null) {
+        _checkCompletion(caseModel);
+      }
     }
   }
 
@@ -301,7 +418,13 @@ class _CaseDetailScreenState extends ConsumerState<CaseDetailScreen> {
           onPositionChanged: (pos) {
             setState(() => _currentPosition = pos);
           },
-          onInteractiveStepHit: _handleInteractiveStep, // Hook callback
+          onInteractiveStepHit: _handleInteractiveStep,
+          onVideoCompleted: () {
+            if (!_isVideoFinished) {
+              setState(() => _isVideoFinished = true);
+              _checkCompletion(playerCaseModel);
+            }
+          },
         ),
 // ... rest of method ...
 
@@ -379,9 +502,33 @@ class _CaseDetailScreenState extends ConsumerState<CaseDetailScreen> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Chip(label: Text(caseModel.speciality)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        caseModel.speciality,
+                        style: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
                     const SizedBox(width: 8),
-                    Chip(label: Text(caseModel.level.name.toUpperCase())),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _getDifficultyColor(caseModel.level),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        caseModel.level.name.toUpperCase(),
+                        style: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -661,6 +808,17 @@ class _CaseDetailScreenState extends ConsumerState<CaseDetailScreen> {
       ),
     );
   }
+
+  Color _getDifficultyColor(CaseLevel level) {
+    switch (level) {
+      case CaseLevel.easy:
+        return Colors.green;
+      case CaseLevel.medium:
+        return Colors.orange;
+      case CaseLevel.hard:
+        return Colors.red;
+    }
+  }
 }
 
 class _InteractiveQuestionDialog extends StatefulWidget {
@@ -683,20 +841,39 @@ class _InteractiveQuestionDialogState
     extends State<_InteractiveQuestionDialog> {
   final _controller = TextEditingController();
   InteractiveAnswer? _result;
+  bool _isEvaluating = false;
 
-  void _submit() {
+  void _submit() async {
     if (_controller.text.trim().isEmpty) return;
 
-    final evaluation = AiEvaluationService.evaluateAnswer(
-      step: widget.step,
-      studentAnswer: _controller.text.trim(),
-      studentId: widget.studentId,
-      caseId: widget.caseId,
-    );
-
     setState(() {
-      _result = evaluation;
+      _isEvaluating = true;
     });
+
+    try {
+      final evaluation = await AiEvaluationService.evaluateAnswer(
+        step: widget.step,
+        studentAnswer: _controller.text.trim(),
+        studentId: widget.studentId,
+        caseId: widget.caseId,
+      );
+
+      if (mounted) {
+        setState(() {
+          _result = evaluation;
+          _isEvaluating = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isEvaluating = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Evaluation failed: $e')),
+        );
+      }
+    }
   }
 
   @override
@@ -760,8 +937,13 @@ class _InteractiveQuestionDialogState
       actions: [
         if (_result == null)
           ElevatedButton(
-            onPressed: _submit,
-            child: const Text('Submit Answer'),
+            onPressed: _isEvaluating ? null : _submit,
+            child: _isEvaluating
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('Submit Answer'),
           )
         else
           TextButton(

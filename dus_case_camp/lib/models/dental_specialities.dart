@@ -7,7 +7,6 @@ enum DentalSpecialty {
   oral_surgery,
   pedodontics,
   oral_radiology,
-  periodontology,
   implantology,
   other
 }
@@ -16,30 +15,23 @@ class DentalSpecialtyConfig {
   static const Map<DentalSpecialty, Map<String, String>> _labels = {
     DentalSpecialty.endodontics: {'en': 'Endodontics', 'tr': 'Endodonti'},
     DentalSpecialty.orthodontics: {'en': 'Orthodontics', 'tr': 'Ortodonti'},
-    DentalSpecialty.periodontics: {
-      'en': 'Periodontics',
-      'tr': 'Periodontoloji'
+    DentalSpecialty.pedodontics: {'en': 'Pedodontics', 'tr': 'Pedodonti'},
+    DentalSpecialty.oral_surgery: {
+      'en': 'Oral Surgery',
+      'tr': 'Ağız Diş Çene Cerrahisi'
     },
     DentalSpecialty.prosthodontics: {
       'en': 'Prosthodontics',
       'tr': 'Protetik Diş Tedavisi'
     },
+    DentalSpecialty.periodontics: {
+      'en': 'Periodontics',
+      'tr': 'Periodontoloji'
+    },
     DentalSpecialty.restorative: {'en': 'Restorative', 'tr': 'Restoratif'},
-    DentalSpecialty.oral_surgery: {
-      'en': 'Oral Surgery',
-      'tr': 'Ağız, Diş ve Çene Cerrahisi'
-    },
-    DentalSpecialty.pedodontics: {
-      'en': 'Pedodontics',
-      'tr': 'Pedodonti (Çocuk Diş)'
-    },
     DentalSpecialty.oral_radiology: {
       'en': 'Oral Radiology',
       'tr': 'Oral Radyoloji'
-    },
-    DentalSpecialty.periodontology: {
-      'en': 'Periodontology',
-      'tr': 'Periodontoloji (Diğer)'
     },
     DentalSpecialty.implantology: {'en': 'Implantology', 'tr': 'İmplantoloji'},
     DentalSpecialty.other: {'en': 'Other', 'tr': 'Diğer'},

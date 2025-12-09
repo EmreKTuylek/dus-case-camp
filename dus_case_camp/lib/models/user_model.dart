@@ -13,6 +13,9 @@ class UserModel {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  final Map<String, UserSpecialtyStats> specialtyStats;
+  final List<String> badges;
+
   UserModel({
     required this.id,
     required this.fullName,
@@ -23,6 +26,8 @@ class UserModel {
     this.totalPoints = 0,
     required this.createdAt,
     required this.updatedAt,
+    this.specialtyStats = const {},
+    this.badges = const [],
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -39,6 +44,17 @@ class UserModel {
       totalPoints: json['totalPoints'] as int? ?? 0,
       createdAt: (json['createdAt'] as Timestamp).toDate(),
       updatedAt: (json['updatedAt'] as Timestamp).toDate(),
+      specialtyStats: (json['specialtyStats'] as Map<String, dynamic>?)?.map(
+            (key, value) => MapEntry(
+              key,
+              UserSpecialtyStats.fromJson(value as Map<String, dynamic>),
+            ),
+          ) ??
+          {},
+      badges: (json['badges'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
     );
   }
 
@@ -53,6 +69,10 @@ class UserModel {
       'totalPoints': totalPoints,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
+      'specialtyStats': specialtyStats.map(
+        (key, value) => MapEntry(key, value.toJson()),
+      ),
+      'badges': badges,
     };
   }
 
@@ -64,6 +84,8 @@ class UserModel {
     int? yearOfStudy,
     int? totalPoints,
     DateTime? updatedAt,
+    Map<String, UserSpecialtyStats>? specialtyStats,
+    List<String>? badges,
   }) {
     return UserModel(
       id: id,
@@ -75,6 +97,32 @@ class UserModel {
       totalPoints: totalPoints ?? this.totalPoints,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      specialtyStats: specialtyStats ?? this.specialtyStats,
+      badges: badges ?? this.badges,
     );
+  }
+}
+
+class UserSpecialtyStats {
+  final int casesSolved;
+  final int xp;
+
+  UserSpecialtyStats({
+    this.casesSolved = 0,
+    this.xp = 0,
+  });
+
+  factory UserSpecialtyStats.fromJson(Map<String, dynamic> json) {
+    return UserSpecialtyStats(
+      casesSolved: json['casesSolved'] as int? ?? 0,
+      xp: json['xp'] as int? ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'casesSolved': casesSolved,
+      'xp': xp,
+    };
   }
 }

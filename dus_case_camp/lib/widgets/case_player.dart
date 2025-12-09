@@ -11,6 +11,7 @@ class CasePlayer extends StatefulWidget {
   final CaseModel caseModel;
   final Function(Duration) onPositionChanged;
   final Function(InteractiveStep)? onInteractiveStepHit;
+  final VoidCallback? onVideoCompleted;
   final VideoPlayerController? existingController;
 
   const CasePlayer({
@@ -18,6 +19,7 @@ class CasePlayer extends StatefulWidget {
     required this.caseModel,
     required this.onPositionChanged,
     this.onInteractiveStepHit,
+    this.onVideoCompleted,
     this.existingController,
   });
 
@@ -132,12 +134,26 @@ class CasePlayerState extends State<CasePlayer> {
     _timer = Timer.periodic(const Duration(milliseconds: 500), (timer) async {
       if (_youtubeController != null) {
         final position = await _youtubeController!.currentTime;
+        final duration = await _youtubeController!.duration;
+
         widget.onPositionChanged(Duration(seconds: position.toInt()));
         _checkInteractiveStepYouTube(position);
+
+        // Check Completion (simple heurstic: > 95% or ended state)
+        // Note: YouTube iframe sends 'ended' state events, but polling helps too.
+        if (duration > 0 && position >= duration * 0.98) {
+          widget.onVideoCompleted?.call();
+        }
       } else if (_videoPlayerController != null &&
           _videoPlayerController!.value.isInitialized &&
           _videoPlayerController!.value.isPlaying) {
-        widget.onPositionChanged(_videoPlayerController!.value.position);
+        final val = _videoPlayerController!.value;
+        widget.onPositionChanged(val.position);
+
+        if (val.duration.inMilliseconds > 0 && val.position >= val.duration) {
+          // or nearly there
+          widget.onVideoCompleted?.call();
+        }
       }
     });
 

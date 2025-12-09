@@ -27,6 +27,34 @@ class Chapter {
   }
 }
 
+class CaseSubtitle {
+  final String language; // e.g. 'en', 'tr'
+  final String label; // e.g. 'English', 'Türkçe'
+  final String url;
+
+  CaseSubtitle({
+    required this.language,
+    required this.label,
+    required this.url,
+  });
+
+  factory CaseSubtitle.fromJson(Map<String, dynamic> json) {
+    return CaseSubtitle(
+      language: json['language'] as String? ?? 'en',
+      label: json['label'] as String? ?? 'English',
+      url: json['url'] as String? ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'language': language,
+      'label': label,
+      'url': url,
+    };
+  }
+}
+
 class CaseModel {
   final String id;
   final String weekId;
@@ -43,6 +71,7 @@ class CaseModel {
   // New fields for Unified Player
   final CaseVideoType videoType;
   final String? videoUrl; // For VOD
+  final String? thumbnailUrl; // For Video Thumbnail
   final String? liveStreamUrl; // For Live
   final DateTime? liveSessionStart;
   final DateTime? liveSessionEnd;
@@ -51,6 +80,7 @@ class CaseModel {
   // Admin & Interactive AI Fields
   final List<PrepMaterial> prepMaterials;
   final List<InteractiveStep> interactiveSteps;
+  final List<CaseSubtitle> subtitles;
 
   CaseModel({
     required this.id,
@@ -66,12 +96,14 @@ class CaseModel {
     this.preparationMaterials,
     this.videoType = CaseVideoType.vod,
     this.videoUrl,
+    this.thumbnailUrl,
     this.liveStreamUrl,
     this.liveSessionStart,
     this.liveSessionEnd,
     this.chapters = const [],
     this.prepMaterials = const [],
     this.interactiveSteps = const [],
+    this.subtitles = const [],
   });
 
   // Helper to get localized label
@@ -121,6 +153,7 @@ class CaseModel {
         orElse: () => CaseVideoType.vod,
       ),
       videoUrl: json['videoUrl'] as String?,
+      thumbnailUrl: json['thumbnailUrl'] as String?,
       liveStreamUrl: json['liveStreamUrl'] as String?,
       liveSessionStart: (json['liveSessionStart'] as Timestamp?)?.toDate(),
       liveSessionEnd: (json['liveSessionEnd'] as Timestamp?)?.toDate(),
@@ -134,6 +167,10 @@ class CaseModel {
           [],
       interactiveSteps: (json['interactiveSteps'] as List<dynamic>?)
               ?.map((e) => InteractiveStep.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      subtitles: (json['subtitles'] as List<dynamic>?)
+              ?.map((e) => CaseSubtitle.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
     );
@@ -156,6 +193,7 @@ class CaseModel {
       'preparationMaterials': preparationMaterials,
       'videoType': videoType.name,
       'videoUrl': videoUrl,
+      'thumbnailUrl': thumbnailUrl,
       'liveStreamUrl': liveStreamUrl,
       'liveSessionStart': liveSessionStart != null
           ? Timestamp.fromDate(liveSessionStart!)
@@ -165,6 +203,7 @@ class CaseModel {
       'chapters': chapters.map((e) => e.toJson()).toList(),
       'prepMaterials': prepMaterials.map((e) => e.toJson()).toList(),
       'interactiveSteps': interactiveSteps.map((e) => e.toJson()).toList(),
+      'subtitles': subtitles.map((e) => e.toJson()).toList(),
     };
   }
 }

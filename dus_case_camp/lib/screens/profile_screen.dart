@@ -36,7 +36,7 @@ class ProfileScreen extends ConsumerWidget {
             return TabBarView(
               children: [
                 _buildOverviewTab(context, ref, user, l10n),
-                _buildBadgesTab(context, user.id, l10n),
+                _buildBadgesTab(context, user, l10n),
                 _buildCertificatesTab(context, user.id, l10n),
               ],
             );
@@ -144,49 +144,63 @@ class ProfileScreen extends ConsumerWidget {
   }
 
   Widget _buildBadgesTab(
-      BuildContext context, String userId, AppLocalizations l10n) {
-    final _gamificationService = GamificationService();
+      BuildContext context, UserModel user, AppLocalizations l10n) {
+    final badges = user.badges;
 
-    return StreamBuilder<List<UserBadge>>(
-      stream: _gamificationService.getUserBadges(userId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return Center(child: Text(l10n.noBadges));
-        }
+    if (badges.isEmpty) {
+      return Center(
+          child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.emoji_events_outlined, size: 64, color: Colors.grey[300]),
+          const SizedBox(height: 16),
+          Text(l10n.noBadges, style: TextStyle(color: Colors.grey[600])),
+        ],
+      ));
+    }
 
-        final badges = snapshot.data!;
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: badges.length,
-          itemBuilder: (context, index) {
-            final userBadge = badges[index];
-            final config = GamificationService.AVAILABLE_BADGES.firstWhere(
-              (b) => b.id == userBadge.badgeId,
-              orElse: () => BadgeConfig(
-                  id: userBadge.badgeId,
-                  name: 'Unknown Badge',
-                  description: '',
-                  iconPath: ''),
-            );
+    return GridView.builder(
+      padding: const EdgeInsets.all(16),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: 0.8,
+      ),
+      itemCount: badges.length,
+      itemBuilder: (context, index) {
+        final badgeId = badges[index];
+        final config = GamificationService.AVAILABLE_BADGES.firstWhere(
+          (b) => b.id == badgeId,
+          orElse: () => BadgeConfig(
+              id: badgeId, name: 'Unknown', description: '', iconPath: ''),
+        );
 
-            return Card(
-              child: ListTile(
-                leading: const CircleAvatar(
-                  backgroundColor: Colors.amber,
-                  child: Icon(Icons.emoji_events, color: Colors.white),
-                ),
-                title: Text(config.name),
-                subtitle: Text(config.description),
-                trailing: Text(
-                  "${userBadge.earnedAt.day}/${userBadge.earnedAt.month}",
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
+        return Card(
+          elevation: 2,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (config.iconPath.isNotEmpty)
+                Image.asset(config.iconPath,
+                    height: 48,
+                    width: 48,
+                    errorBuilder: (_, __, ___) => const Icon(Icons.emoji_events,
+                        size: 48, color: Colors.amber))
+              else
+                const Icon(Icons.emoji_events, size: 48, color: Colors.amber),
+              const SizedBox(height: 8),
+              Text(
+                config.name,
+                textAlign: TextAlign.center,
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                maxLines: 2,
               ),
-            );
-          },
+            ],
+          ),
         );
       },
     );

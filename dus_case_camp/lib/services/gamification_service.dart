@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/gamification_models.dart';
 import '../models/leaderboard_model.dart';
 import '../models/dental_specialities.dart';
+import '../models/user_model.dart';
 
 class GamificationService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -15,12 +16,33 @@ class GamificationService {
 
   // --- Point System ---
 
+  // --- Helper Methods ---
+  Future<bool> hasCompletedCase(String userId, String caseId) async {
+    final query = await _firestore
+        .collection('userPointsEvents')
+        .where('userId', isEqualTo: userId)
+        .where('caseId', isEqualTo: caseId)
+        .where('eventType', isEqualTo: 'case_complete')
+        .limit(1)
+        .get();
+    return query.docs.isNotEmpty;
+  }
+
   Future<void> awardPoints({
     required String userId,
     required String eventType, // e.g. 'prep_read'
     required int points,
     String? caseId,
   }) async {
+    // Prevent duplicate case complete
+    if (eventType == 'case_complete' && caseId != null) {
+      if (await hasCompletedCase(userId, caseId)) {
+        debugPrint(
+            'Case $caseId already completed by $userId. Skipping points.');
+        return;
+      }
+    }
+
     final eventRef = _firestore.collection('userPointsEvents').doc();
     final userRef = _firestore.collection('users').doc(userId);
 
@@ -44,9 +66,65 @@ class GamificationService {
         // 2. Update User Total
         int currentTotal =
             (userSnapshot.data() as Map<String, dynamic>)['totalPoints'] ?? 0;
-        transaction.update(userRef, {'totalPoints': currentTotal + points});
 
-        // 3. (Optional) Update Leaderboards - ideally done via Cloud Functions,
+        // Prepare updates
+        final Map<String, dynamic> updates = {
+          'totalPoints': currentTotal + points
+        };
+
+        // 2b. Update Specialty Stats if caseId is provided
+        if (caseId != null) {
+          final caseDoc =
+              await transaction.get(_firestore.collection('cases').doc(caseId));
+          if (caseDoc.exists) {
+            final cData = caseDoc.data()!;
+            String rawVal = cData['specialtyKey'] as String? ?? '';
+            if (rawVal.isEmpty) {
+              rawVal = cData['speciality'] as String? ?? '';
+            }
+            final specialtyKey =
+                DentalSpecialtyConfig.guessFromText(rawVal).name;
+
+            // Get current stats for this specialty
+            final userStatsMap =
+                (userSnapshot.data() as Map<String, dynamic>)['specialtyStats']
+                        as Map<String, dynamic>? ??
+                    {};
+            final currentStatsData =
+                userStatsMap[specialtyKey] as Map<String, dynamic>?;
+
+            int currentCases = 0;
+            int currentXp = 0;
+            if (currentStatsData != null) {
+              currentCases = currentStatsData['casesSolved'] as int? ?? 0;
+              currentXp = currentStatsData['xp'] as int? ?? 0;
+            }
+
+            // Increment logic
+            // Note: For 'interactive_answer', we might not count as 'casesSolved' unless it completes the case.
+            // But strict requirement says "solving ... increments XP".
+            // We will increment XP here.
+            // For casesSolved, we probably only increment if the eventType is 'case_complete' or we decide interactive implies it.
+            // Let's assume 'interactive_answer' adds XP but NOT casesSolved,
+            // unless we add a specific event for completion.
+            // BUT, for simplicity in MVP, if points >= 100 (full case), maybe we increment solved?
+            // Let's just increment XP for now. 'casesSolved' is handled by Admin Grading or strict completion.
+
+            final newStats = {
+              'casesSolved':
+                  currentCases, // Keep same unless typical completion
+              'xp': currentXp + points,
+            };
+
+            // Construct the nested update path
+            // Firestore dot notation for map fields: "specialtyStats.endodontics"
+            updates['specialtyStats.$specialtyKey'] = newStats;
+          }
+        }
+
+        transaction.update(userRef, updates);
+
+        // 3. (Optional) Update Leaderboards
         // but for client-side demo we might skip or do a lightweight update if needed.
         // We will rely on the UI simply reading the user's total for Global.
       });
@@ -91,72 +169,84 @@ class GamificationService {
     // Add others systematically as needed
   ];
 
-  Future<void> checkBadges(String userId) async {
-    // Simple client-side check example
+  // Revised Badge Check Logic returning newly earned badges
+  Future<List<BadgeConfig>> checkAndAwardBadgesForUser(String userId) async {
+    final List<BadgeConfig> newBadges = [];
+
     try {
       final userDoc = await _firestore.collection('users').doc(userId).get();
-      final totalPoints = (userDoc.data()?['totalPoints'] ?? 0) as int;
+      if (!userDoc.exists) return [];
 
-      if (totalPoints > 0) {
-        await _grantBadge(userId, 'first_step');
+      final user = UserModel.fromJson(userDoc.data()!);
+      final existingBadges = user.badges.toSet();
+
+      // 1. General Point Badges
+      if (user.totalPoints > 0 && !existingBadges.contains('first_step')) {
+        newBadges.add(AVAILABLE_BADGES.firstWhere((b) => b.id == 'first_step'));
       }
-      if (totalPoints >= 500) {
-        await _grantBadge(userId, 'dedicated_student');
+      if (user.totalPoints >= 500 &&
+          !existingBadges.contains('dedicated_student')) {
+        newBadges.add(
+            AVAILABLE_BADGES.firstWhere((b) => b.id == 'dedicated_student'));
       }
 
-      // --- Specialty Badge Check ---
-      // Fetch user's scored submissions
-      final subsSnapshot = await _firestore
-          .collection('submissions')
-          .where('studentId', isEqualTo: userId)
-          .where('status', isEqualTo: 'scored')
-          .get();
+      // 2. Specialty Badges (Using Stats)
+      // Helper to check stats for a badge
+      void checkSpecialtyBadge(
+          String badgeId, String specialtyKey, int requiredCases) {
+        if (existingBadges.contains(badgeId)) return;
 
-      if (subsSnapshot.docs.isNotEmpty) {
-        final caseIds =
-            subsSnapshot.docs.map((d) => d.data()['caseId'] as String).toSet();
-
-        final Map<String, int> specialtyCounts = {};
-
-        // Fetch cases to check specialty
-        for (final cid in caseIds) {
-          final cDoc = await _firestore.collection('cases').doc(cid).get();
-          if (cDoc.exists) {
-            final data = cDoc.data()!;
-
-            // ROBUST RESOLUTION:
-            String rawVal = data['specialtyKey'] as String? ?? '';
-            if (rawVal.isEmpty) {
-              rawVal = data['speciality'] as String? ?? '';
-            }
-
-            // Normalize using Config
-            final normalizedKey =
-                DentalSpecialtyConfig.guessFromText(rawVal).name;
-            debugPrint(
-                "Case $cid: raw='$rawVal' -> normalized='$normalizedKey'");
-
-            specialtyCounts[normalizedKey] =
-                (specialtyCounts[normalizedKey] ?? 0) + 1;
+        final stats = user.specialtyStats[specialtyKey];
+        if (stats != null && stats.casesSolved >= requiredCases) {
+          final badge = AVAILABLE_BADGES.firstWhere((b) => b.id == badgeId,
+              orElse: () => BadgeConfig(
+                  id: badgeId,
+                  name: 'New Badge',
+                  description: '',
+                  iconPath: ''));
+          if (badge.id.isNotEmpty && badge.description.isNotEmpty) {
+            // Ensure valid badge
+            newBadges.add(badge);
           }
         }
+      }
 
-        // Grant Specialty Badges
-        // Endodontics
-        final endoCount = specialtyCounts['endodontics'] ?? 0;
-        if (endoCount >= 1) await _grantBadge(userId, 'endo_starter');
-        if (endoCount >= 5) await _grantBadge(userId, 'endo_master');
+      // Define rules here (or iterate a config map)
+      checkSpecialtyBadge('endo_starter', 'endodontics', 1);
+      checkSpecialtyBadge('endo_master', 'endodontics', 5);
+      // Example placeholders for others:
+      checkSpecialtyBadge('ortho_starter', 'orthodontics', 1);
 
-        // Example for others
-        final orthoCount = specialtyCounts['orthodontics'] ?? 0;
-        if (orthoCount >= 1) await _grantBadge(userId, 'ortho_starter');
+      // 3. Award Badges (Update DB)
+      if (newBadges.isNotEmpty) {
+        final newBadgeIds = newBadges.map((b) => b.id).toList();
+
+        // Update User Document with new badges array
+        await _firestore
+            .collection('users')
+            .doc(userId)
+            .update({'badges': FieldValue.arrayUnion(newBadgeIds)});
+
+        // Also add to legacy subcollection for backward compat if needed (optional)
+        // keeping existing subcollection logic for certificates or detailed audit trails
+        for (final badge in newBadges) {
+          await _grantBadgeToSubcollection(userId, badge.id);
+        }
       }
     } catch (e) {
       debugPrint("Badge check error: $e");
     }
+
+    return newBadges;
   }
 
-  Future<void> _grantBadge(String userId, String badgeId) async {
+  @Deprecated('Use checkAndAwardBadgesForUser instead')
+  Future<void> checkBadges(String userId) async {
+    await checkAndAwardBadgesForUser(userId);
+  }
+
+  // Renamed internal method to be explicit about subcollection usage
+  Future<void> _grantBadgeToSubcollection(String userId, String badgeId) async {
     final badgeRef = _firestore
         .collection('users')
         .doc(userId)
@@ -170,7 +260,6 @@ class GamificationService {
         badgeId: badgeId,
         earnedAt: DateTime.now(),
       ).toJson());
-      debugPrint("Granted badge $badgeId to $userId");
     }
   }
 
